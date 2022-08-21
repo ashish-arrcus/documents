@@ -1,0 +1,1377 @@
+###################################################################################
+scp ashish@infra1:/local1/nfs2/newdaily/aminor/2022_07_31_21/aminor/ONL/ONL-standalone.bcm.ARCOS-arrcus-stretch_ONL-OS_2022-07-31.1820-0c047d6_AMD64_INSTALLED_INSTALLER .
+###################################################################################
+show interface counter commands:
+for i=0,5 'sleep 1; show c'
+###################################################################################
+root@TD4-1# show running-config version
+version "5.1.1.DEV5 [release] 2022-03-29 09:00:43"
+root@TD4-1#
+###################################################################################
+This information can directly go in the yang interface file if_init.xml
+
+root@td4-4# show run int swp1 | display xml/jason
+<config xmlns="http://tail-f.com/ns/config/1.0">
+  <interfaces xmlns="http://openconfig.net/yang/interfaces">
+    <interface>
+      <name>swp1</name>
+      <config>
+        <type xmlns:ianaift="urn:ietf:params:xml:ns:yang:iana-if-type">ianaift:ethernetCsmacd</type>
+        <name>swp1</name>
+        <enabled>false</enabled>
+      </config>
+    </interface>
+  </interfaces>
+</config>
+root@td4-4#
+
+###################################################################################
+ARCOS Building:
+---------------
+
+1) make all (arrcus_rel)
+  - creates all images on the vm // drawback - take very long time (12+ hours), time consuming
+  - dev should not use this *** ALL Develpoment work
+  - release team use this one only
+  - when dev is giving any image to the test(internal) or external
+  - Daily images are @infra1:/local1/nfs2/newdaily/<date>/aminor
+  Loading:
+  - Go to grub menu
+    - 1. select uninstall OS, (format all your memory, so eventually loose all config), box will reboot
+      - 1.1. then select rescue mode
+      - 1.2. you will get onie prompt (default vendor onie)
+      - 1.3. copy your image which you created step @1 (*bcm*_INSTALLED_INSTALLER) or from infra1
+      - 1.4. onie-nos-install <image @1.3> <enter>
+2) make all / pdebuild (arrcus_sw)
+  - make all (2 hours)
+    - create all the libs and binaries
+    - individual component can be made
+    - developer should use this when needed
+    Loading:
+    - service spyder stop
+     1 - copy all the libs and binaries to the correct locations
+     2 - whaever component you need you can copy that only
+  - pdebuild (2 hours) = [within release, incremental build]
+    - creates all thge debians
+    - use when working on the release, and you dont want to reload the box compeletely
+    - configuration wont be removed
+    - developer should use this when needed
+    - needed when you are making changes in the infra confd/yang/
+    - scp in /tmp;service spyder stop;give command "dpkg -i *.deb"
+###################################################################################
+Use above to dump ingress packet metadata on port 81
+This should also print the reason code.
+
+cint_reset();
+bcm_pktio_netif_t netif;
+bcm_pktio_filter_t filter;
+int unit = 0;
+bcm_pktio_filter_t_init(&filter);
+filter.type = BCM_PKTIO_FILTER_T_RX_PKT;
+filter.priority = 1;
+filter.dest_type = BCM_PKTIO_DEST_T_BCM_RX_API;
+filter.dest_type = BCM_PKTIO_DEST_T_NETIF;
+sal_memcpy(filter.desc, "Filter bcm", 20);
+filter.dest_id = 1;
+filter.match_flags = BCM_PKTIO_FILTER_M_INGPORT;
+filter.m_ingport = 81;
+print bcm_pktio_filter_create(unit, &filter);
+
+pw stop
+pw start report +raw +pmd +decode
+
+More details can be seen in:
+https://brcmsemiconductor-csm.wolkenservicedesk.com/wolken-support/mycases/request-details?requestId=12231910
+
+###################################################################################
+Front panel port start and sfp start:
+-------------------------------------
+We have a file: pltf_agent_cfg.json
+
+Then we can overwrite these parameters in the *_r0.py file which is platform specific.
+
+###################################################################################
+Getting data from the mps control:
+----------------------------------
+arcos:
+show mbroker system-mps table | grep ifmgr  << This will give the table
+
+In the compiled view (arrcus_sw):
+grep -r _OBJ_TYPE * | grep ifmgr            << This will give the schema id
+
+linux shell: (to check the current status of all the interfaces)
+/usr/lib/arcos/mpsctl -t /default/oper/infra/ifmgr/ifs/ -s Ifmgr.ifmgr_if
+
+linux shell: (to check the current status of all the ports)
+/usr/lib/arcos/mpsctl -t /default/oper/infra/ifmgr/ports/ -s Ifmgr.ifmgr_port
+
+In general autoneg is having an issue on this platform 25G is also not working.
+###################################################################################
+
+Packet Watcher on TD3:
+----------------------
+
+Sometimes it is needed to watch the packet in the bcm_shell,
+as on the normal swp interface if the packets get punted we dont get the
+reason code.
+
+Say you have to check the reasoncode for the pkts getting punted on the swp5.
+Find out the bcm_port form the port_cfg.json file and enable the RX_API flag,
+as follows while creating a netdev filter.
+
+bcm_port port_of_interest = 5;
+filter.dest_type = BCM_KNET_DEST_T_NETIF;
+if (port == port_of_interest) {
+  filter.dest_type = BCM_KNET_DEST_T_BCM_RX_API;
+}
+
+Build and load the plugins.
+
+In the BCM shell.
+
+BCM>pw start report +raw +decode
+
+[bcmPW.0]
+[bcmPW.0]Packet[265]: data[0000]: {0180c200000e} {e8c57a8f913f} 8100 0f80
+[bcmPW.0]Packet[265]: data[0010]: 88cc 0207 04e8 c57a 8f91 3e04 0605 7377
+[bcmPW.0]Packet[265]: data[0020]: 7031 3206 0200 780a 0574 6434 2d33 0c1f
+[bcmPW.0]Packet[265]: data[0030]: 4172 7263 7573 204f 7065 7261 7469 6e67
+[bcmPW.0]Packet[265]: data[0040]: 2053 7973 7465 6d20 2841 7263 4f53 290e
+[bcmPW.0]Packet[265]: data[0050]: 0400 9c00 9010 0c05 010a 1b68 2602 0000
+[bcmPW.0]Packet[265]: data[0060]: 0004 0008 0573 7770 3132 fe09 0012 0f03
+[bcmPW.0]Packet[265]: data[0070]: 0100 0000 00fe 0900 120f 0102 8000 004d
+[bcmPW.0]Packet[265]: data[0080]: 0000 d456 ea5a
+[bcmPW.0]Packet[265]: length 134 (134). rx-port 5. cos 6. prio_int 0. vlan 3968. reason 0x4000. Untagged.
+[bcmPW.0]Packet[265]: dest-port 0. dest-mod 0. src-port 5. src-mod 0. opcode 0.  matched 0. classification-tag 0.
+[bcmPW.0]Packet[265]: reasons: Bpdu
+[bcmPW.0]Packet[265]: reasons: Protocol
+[bcmPW.0]Packet[265]:
+BCM>pw stop
+###################################################################################
+debian control:
+---------------
+in the arrcus_sw/debian/control file has all the dpendancies for the specific
+branch, check here:
+- bcm_sdk version
+- go paths
+- and any other dependacies which is needed for your image to compile
+
+Once you find it, load that debian in your ARCOS Builder Container so that the
+compilation can go through;
+
+commands:
+dpkg -i <debian name>         // for install
+dpkg -l                       // list debian pkgs
+docker stop <container_name>  // stop the docker instance
+docker rm <container_name>    // remove docker instance
+docker ps                     // to see the docker instance
+###################################################################################
+TD3 broadcom shell command:
+
+show counter cpu -> show cpu queue counters
+l3 l3table show -> host table
+l3 l3def show -> show lpm
+
+on arcos cli:
+-------------
+show control-plane state
+show control-plane state | tab
+
+###################################################################################
+root@td3-201-9# config
+Entering configuration mode terminal
+Current configuration users:
+root ssh (cli from 10.15.1.94) on since 2019-03-15 20:20:21 terminal mode
+root@td3-201-9(config)# hardware platform forwarding-scale fwd-profile p2
+root@td3-201-9(config)# commit
+Aborted: the configuration database is locked by session 18 root ssh (cli from 10.15.1.94) on since 2019-03-15 20:20:21
+root@td3-201-9(config)# commit
+Aborted: the configuration database is locked by session 18 root ssh (cli from 10.15.1.94) on since 2019-03-15 20:20:21
+###################################################################################
+platform info can be found in the follwing location:
+mnt/onl/config/cdb/0200_platform.xml
+###################################################################################
+Ufispace/ufispace:
+This is a FTP activation notice from Ufispace
+The account and password will be sent in batches
+FTP Server: ftp://ftp.ufispace.com
+Your account: ashish@arrcus.com
+This is a FTP activation notice from Ufispace
+Your password: !2F@qKeR
+###################################################################################
+TD4/trident4 Build Server:
+10.9.208.50
+aten/aten
+###################################################################################
+static routes:
+(config)# network-instance default
+(config-network-instance-default)# protocol STATIC static-routes
+(config-protocol-STATIC/static-routes)# static-route 192.168.100.0/24
+(config-static-route-192.168.100.0/24)# description "static route under test"
+(config-static-route-192.168.100.0/24)# next-hop-index "next-hop 1"
+(config-next-hop-index-next-hop 1)# next-hop 10.9.201.1
+(config-next-hop-index-next-hop 1)# interface swp11
+
+static route configuration:
+---------------------------
+network-instance default
+ protocol STATIC static
+  static-route 150.1.1.0/24
+   next-hop-index 1
+    next-hop 14.0.0.1
+    interface swp7
+   !
+  !
+!
+network-instance default
+ protocol STATIC static-routes
+  static-route 182.168.100.0/24
+   next-hop-index 1
+    next-hop 22.0.0.2
+    interface swp28
+   !
+  !
+!
+network-instance default
+ protocol STATIC static
+  static-route 182.168.100.0/24
+   description "static route under test"
+   next-hop-index "next-hop 1"
+    next-hop 20.20.20.2
+    interface swp10
+   !
+  !
+ !
+!
+network-instance default
+ protocol STATIC static
+  static-route 182.168.100.0/24
+   description "static route under test"
+   next-hop-index "next-hop 2"
+    next-hop 30.30.30.2
+    interface swp11
+   !
+  !
+ !
+!
+conf
+ network-instance default
+   protocol STATIC static-routes
+     static-route 192.168.100.1/32
+     description "static route under test"
+     next-hop-index "next-hop 1"
+   next-hop 22.0.0.1
+   interface swp28
+###################################################################################
+If you have changes in the DPAL and want to load only .bin and .so
+Use the follwing commands to generate the new code so that you can
+load only dpal.
+14:34:56:aminor-builder:[/home/vijayr/td3-up/arrcus_sw/dpal/codegen]
+574 (td4-dev-tfno *=) => ./clean.sh
+14:35:09:aminor-builder:[/home/vijayr/td3-up/arrcus_sw/dpal/codegen]
+575 (td4-dev-tfno *=) => ./gen.sh
+
+###################################################################################
+Commands/commands:
+------------------
+cat /usr/share/arcos/build_info_cfg.json     // To check buildl info - of the image
+lspci -vmm                                   // To check the pci devices
+###################################################################################
+Console is flooding with the below messages:
+~~
+[22493.272787] DMAR: DRHD: handling fault status reg 2
+[22493.277802] DMAR: [DMA Write] Request device [00:12.0] fault addr 0 [fault reason 05] PTE Write access is not set
+[22493.288392] DMAR: DRHD: handling fault status reg 2
+[22496.945437] dmar_fault: 2060 callbacks suppressed
+[22496.945438] DMAR: DRHD: handling fault status reg 2
+[22496.955284] DMAR: [DMA Write] Request device [00:12.0] fault addr 0 [fault reason 05] PTE Write access is not set
+~~
+
+;to stop the messages execute below
+dmesg -n 1
+###################################################################################
+# This should be the partition on the ONIE partition on the AS6712.
+# It might be hd1 or hd0. Change appropriately.
+
+GRUB RESCUE MODE
+
+grub rescue> ls (hd0,gpt2)/
+./ ../ lost+found/ onie/ grub/ grubenv
+
+# These instructions will load the kernel and ONIE initrd.
+
+grub rescue> set prefix=(hd0,gpt2)/grub
+grub rescue> set root=(hd0,gpt2)
+grub rescue> insmod normal
+grub rescue> insmod linux
+grub rescue> ls /onie
+./ ../ vmlinuz-3.2.35-onie initrd.img-3.2.35-onie tools/ grub/ grub.d/ config/
+grub rescue> linux /onie/vmlinuz-3.2.35-onie console=tty0 console=ttyS1,115200n8
+grub rescue> initrd /onie/initrd.img-3.2.35-onie
+
+grub rescue> linux /onie/vmlinuz-4.9.95-onie console=tty0 console=ttyS1,115200n8 intel_iommu=igfx_off
+
+# The system will not boot into ONIE and you can recover or re-install from there.
+
+grub rescue> boot
+
+Steps which was given by the Jeff:
+==================================
+
+~~
+cat /mnt/onl/boot/grub/grub.cfg
+
+intel_iommu=on
+iommu=pt
+iommu=1
+
+My steps for your reference.
+
+1.  Remount /mnt/onl/boot
+sudo mount -o remount,rw '/mnt/onl/boot'
+
+2 Edit grub.cfg.
+nano /mnt/onl/boot/grub/grub.cfg
+vi /mnt/onl/boot/grub/grub.cfg
+
+3. Check the grub.cfg
+~~
+###################################################################################
+docker package/pkg commands:
+----------------------------
+
+NOTE: If builder instance is killed then we need to do it again
+For TD4/trident4:
+-----------------
+/var/cache/pbuilder/local-packages
+cp all the *.deb to this location
+sudo cp ~/td4-debs/*.deb .    // copy
+sudo dpkg -i *.deb            // install
+//Add below to the GOPATH else compilation wont go through
+export GOPATH=$GOPATH:~/nobackup/trident4-counters/arrcus_sw/infra/pfcp/go/
+dpkg -l                       // list docker packages
+sudo dpkg -r lttng            // remove docker package lttng
+###################################################################################
+;Print one line just after the matching word in a line
+;git log | grep -A1 ashish
+;setting git head of the branch to previous commit;
+git log ; get the ID of the commit
+git reset "ID of the commit"
+git stash
+git push -f
+###################################################################################
+if you see that the psu/PSU info is not seen properly then check:
+root@localhost:/# find . -name *psu_model_name*
+
+Do cat these files and see, if you have the correct check for psu/PSU,
+in the platfor file platform_lib.c in the ONL code.
+###################################################################################
+SONiC build/sonic build;
+
+Login: admin/admin or root/YourPaSsWoRd
+Build VM: 10.9.215.103 ashish/ashish123
+vnc: 10.9.215.103:1
+
+git clone git@github.com:Arrcus/sonic-buildimage.git -b arcsx-package
+
+docker rmi $(docker images |grep -v debian|awk '{print $3}'); git lfs install; git lfs ls-files; git lfs pull; ls -ltrah target; sudo modprobe overlay; make init; make update; make configure PLATFORM=broadcom; make target/sonic-broadcom.bin
+###################################################################################
+commands(bcmshell):
+-------------------
+
+NOTE: commands in bcmshell in XGS and other ASIC may be different.
+
+;To see mac learned in a specific vlan
+show network-instance vlan99 l2rib mac-entries
+;Seeing the Dpal Objects
+show dpal object-type <global-rif> // check for more options
+;To see only in and out broadcast packets from a specifc interface
+show interface swp30 | select counters in-broadcast-pkts | select counters out-broadcast-pkts
+;To connect to the BCM shell
+telnet localhost 8888
+; dump the table in BCM
+dbal table dump table=ING_VSI_INFO_DB
+; to get the trace of the packet
+vis res
+pp vis ikleap core=0
+vis res
+;Enable disable port from the bcm; Check if_mgr and dpal logs on and see what is happening
+BCM.0> port enable 69 true
+port enable 69 true
+BCM.0>
+BCM.0> knet netif show
+
+BCM.0> ?       //This is for Jericho2
+Dynamic commands for all modes:
+ACCess         AllocationManagerAPPLication    ARR            AVS
+CLear          CoMPare        COUnter        CRPS           DaTa
+DBaL           DEviceReset    DmaDescAgg     DIAG           DRAM
+EXPort         Fabric         FieLD          FLexE          FLOW
+GPM            Init_DNX       INTeRrupt      KBP            Layer2
+Layer3         LiNKSCan       LIF            MBIST          MDB
+METER          MTA            MINICONtroller NIF            OAM
+PacKeT         PBMP           PHY            Port           PP
+SER            SHOW           SIGnal         SOC            SRv6
+STG            STIF           TimeAnalyzer   TDM            TM
+TRANSACTion    ERRor_Recovery TRAP           THreaD         VISibility
+VLan           WarmBoot       TX             DNX            SWSTate
+COSQ           GPORT          CTRP           PortMod        DDRPhyCDR
+NEGEV          INIT           DEInit         DETach         PROBE
+REINIT         SwitchControl  STKMode        PortStat       xmem
+miln_phy       miln_cli       milb_cli       xmem           miln_phy
+miln_cli       milb_cli
+BCM.0>
+BCM.0>
+###################################################################################
+Linux/linux commands:
+---------------------
+All the ports on the switch is created as a net dev interfaces on the linux:
+
+Details can be checked on the linux here:
+
+cd /sys/class/net/
+ip link show swp13
+
+;onlpdump
+/lib/platform-config/current/onl/bin/onlpdump
+
+###################################################################################
+Nightly/Daily Images/daily/nightly images:
+------------------------------------------
+
+root@USERVER012:/nfs2/newdaily/
+
+USERVER012:
+server: 10.9.195.31
+username: root
+password: onl
+
+OR
+
+infra1: ashish/VPN_PASSWORD
+/local1/nfs2/newdaily/aminor
+###################################################################################
+Compilation:
+------------
+
+;from arrcus_rel complete compilation, this is complete release make needs 100 Gig size
+;This take around 8-9 Hours
+make init; make update; make world
+
+;sometimes it make get an error due to mtools, so install them and retry
+sudo apt-get install mtools
+
+;Only plugin compilation, connect to the arcos builder environment
+;For this first you need to do make under arrcus_sw one time
+
+cd arrcus_sw
+amk ; make all => alias is already set
+
+image:ARCOS-arrcus-stretch-anpn-6389_ONL-OS_2021-12-02.1543-d515646_AMD64_INSTALLED_INSTALLER
+
+;then for only dpal plugin you can do the following
+cd arrcus_sw/dpal
+make dpal_plugin_j2
+
+;If you want to make some changes in the dstore and generate the code again:
+;under arrcus_sw/dpal do the following
+make clean
+cd codegen
+./clean.sh
+./gen.sh
+cd ..
+make dpal_plugin_xgs
+
+;If there are changes in the arrcus_sw/infra,
+;thne go to the specific directory and make and copy the .bin on switch
+;and restart the spyder
+;e.g ifmgr changes
+cd infra/ifmgr
+make
+and then copy ifmgr.bin to the /usr/bin/arcos
+
+On the switch:
+--------------
+
+service spyder stop
+service spyder start
+
+;copy these files to the switch, before copying the file, always do "service spyder stop"
+$1 is a switch management IP Address, check the setup page.
+scp build/lib/*.so root@$1:/usr/lib/.
+scp build/bin/*.bin root@$1:/usr/lib/arcos/.
+
+;to check which image is running on the box
+cat /usr/share/arcos/build_info_cfg.json
+
+;to check the traceback of a crashed module - core files location
+gdb /usr/lib/arcos/ifmgr.bin -c /var/log/core/core.0.ifmgr.bin.32213
+gdb /usr/lib/arcos/dpal.bin -c /var/log/core/core.0.ifmgr.bin.32213
+
+;load a new image on the existing switch
+onl-upgrade-from-installer /tmp/<image_name>  ;copy the image first here
+
+;First time got the box from venod, vendor onie will be installed, use below to load new OS
+onie-nos-install <image>
+###################################################################################
+
+Important directories:
+----------------------
+
+arrcus_sw
+  - docs
+    - Command_Line_Interface        ==> Has all the command line info for features like ACL/QOS/BGP etc.
+  - dpal                            ==> Has files for all Data Path Abbstraction Layer
+
+Appendix:
+---------
+
+Code flow:
+----------
+
+dpal_plugin_init          [Intialises all the plugins based on the ASIC jericho/jericho+ etc.]
+  bcm_dnx_init_api        [Init the Asic Instance, it can have multiple slice/core in it.]
+
+
+ArcOS:
+------
+
+ArcOS supports ONIE (Open Network Install Environment) boot process.
+A user can set up the boot sequence through the ONIE AutoDiscovery Boot Sequence or manual boot load.
+The ArcOS configuration will be persistent during a ONL upgrade (starting in ArcOS 3.2.1).
+
+=== Configure the DHCP Server
+
+If you have the MAC address of the switch, we can specify the ONL image specifically for
+each switch in the /etc/dhcp/dhcpd.conf  file:
+
+----
+host SampleSwitch01 {
+  hardware ethernet <MAC_ADDRESS>;
+  fixed-address <MGMT_ADDRESS>;
+  option default-url = "http://<HTTP_SERVER_WITH_PORT>/<ONL_IMAGE_NAME>";
+  option host-name  "SampleSwitch01";
+}
+----
+
+After changing the dhcpd.conf, you need to restart the dhcp server using
+
+----
+service isc-dhcp-server restart
+----
+
+To install a new onie, boot the device into the appropriate ONIE mode using the onie-utility.
+
+----
+root@SeastoneXP-SpineA:~# onie-utility -h
+usage: onie-utility [-h]
+                    (--update-onl | --uninstall-onl | --update-onie | --repave-disk | --onie-rescue)
+
+optional arguments:
+  -h, --help       show this help message and exit
+  --update-onl     upgrade ONL
+  --uninstall-onl  uninstall ONL
+  --update-onie    upgrade ONIE
+  --repave-disk    wipe disk then reinstall ONIE and ONL
+  --onie-rescue    ONIE rescue mode
+----
+
+
+#########################################################################################################
+
+Step-by-step for Code access, Browse and Build:
+-----------------------------------------------
+
+1) Access to VPN, OVIRT and INFRA servers should have got provisioned when you get a welcome mail
+   from IT. If not, please approach Manish (mdoshi@arrcus) or send a mail to it@arrcus.com to get
+   things sorted and the access going.
+
+2) Once your access is all clear, Please login to OVIRT and check on VM PORTAL if there is a Build
+   VM provisioned for you.
+
+   There are two main VM types which arrcus uses:
+
+   1) arrcus-rel which needs a debian9 VM.
+   2) sonic which needs ubuntu once you get the VM ==> Use: (user/Arrcus2018) for default login
+
+
+   Check with the manager which project you will be starting with, based on that drop a mail to IT.
+
+   Please send an email to it@arrcus.com with debian9 or ubutnu. This should raise an IT Ticket
+   and a standard BUILD VM with pre-facto attributes would be provisioned.
+
+1) Once the VM is provisioned, you can use the root login (root/YouReallyNeedToChangeThis) to login the first time.
+   Please change the root password to your suitability.
+
+    This we would need to do via console from the WebAPI on from OVRT page.
+
+    Provision a new user (other than root, eg. <builduser>) on this new VM for usage as a regular build infra client.
+    Root is not preferred one.
+
+    a) We also need to change the /etc/network/interfaces file to add the VM IP which is allocated to you.
+
+    ashish@localhost:~$ cat /etc/network/interfaces
+    # interfaces(5) file used by ifup(8) and ifdown(8)
+    # Include files from /etc/network/interfaces.d:
+    source-directory /etc/network/interfaces.d
+    auto eth0
+    #iface eth0 inet dhcp
+    iface eth0 inet static
+    address 10.9.209.100                  <<< This IP must be from one of the IP which is alloctaed to you
+    netmask 255.255.0.0
+    network 10.9.0.0
+    broadcast 10.9.255.255
+    gateway 10.9.1.1
+
+    b) Also need to change the hosts file as: cat /etc/hosts
+
+    127.0.0.1	localhost
+    127.0.1.1	localhost
+    ::1		localhost ip6-localhost ip6-loopback
+    ff02::1		ip6-allnodes
+    ff02::2		ip6-allrouters
+    10.9.42.24  apt1.sjc.arrcus.com
+
+    c) once this is done, reboot the machine or
+       restart the networking service, "service networking restart"
+
+    sudo shutdown -r now // This is shut down the machine properly and also restart
+
+    Once the user is provisioned, please ensure it has SUDO permissions and is added to docker group as well.
+    sudo visudo // add a username under root and givethe same permission as root
+
+    https://phoenixnap.com/kb/create-a-sudo-user-on-debian
+    sudo gpasswd -a ${USER} docker // adding user to the docker group
+
+    The usual code repository to work with is arrcus-sw on GITHUB. Please do the following steps to pull the code base :-
+
+    Before pulling this, you have to add a SSH key to the GITHUB for this new VM.
+
+    ssh-keygen -t ed25519 -C "<builduser>@arrcus.com"
+    cat /home/<builduser>/.ssh/id_ed25519.pub          //Add this in the GITHUB
+    close the shell and repoen the shell again
+
+    git clone git@github.com:Arrcus/arrcus_sw.git -b aminor
+    git clone git@github.com:Arrcus/arrcus_sw.git            // by default it will pull from aminor
+
+    in the above command, arrcus_sw is the repo and aminor is the usual branch to checkout to begin with.
+
+4)  For build environment, you would need to first pull the arcos-builder codebase as follows:-
+
+    Please pull/create this in the home directory:
+
+    git clone git@github.com:Arrcus/arcos-builder.git
+
+    ; keep it here, we will use it in the setp 6 below.
+
+    geteet group docker
+    getent group sudo
+
+5) Check the docker is set corerctly or not:
+
+    docker run hello-world    // This should not give any error
+    docker images
+
+6)  Create a builder image for a given branch (in our case, aminor) using below command:-
+
+    Please Read: https://github.com/Arrcus/arcos-builder/Readme.md
+
+    Create, launch and connect to the build container as below;
+
+    ####
+    ./create-builder.py -w ~/<LOCATION>/arrcus_sw
+    docker images
+    ./launch-builder <any container name=XYZ> <builder image for builduser listed above>
+    ./connect-builder <above container name=XYZ>
+    ####
+
+7)  By this step, your build environment should now be ready. Let's get on to the workspace build. Go to the repository
+    directory for arrcus_sw which we previously pulled via git.
+
+    Before beginning the build via make command, please resolve the following dependencies:-
+
+    $PATH and $GOPATH - set these two using the below commands :-
+
+    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin:/usr/lib/go-1.15/bin
+    export GOPATH=$PWD:/debian/gopath/:$PWD/third_party/go/:$PWD/dep_pkgs/:$PWD/infra/datastore/go/:$PWD/libutils/logging/go/:$PWD/infra/ppmgr/go/:$PWD/infra/iptrack/go/:$PWD/infra/pubsub/go/:$PWD/routing/srv6oam/go/
+
+    Install arrcus-gtest package
+
+    sudo apt update
+    sudo apt upgrade
+    sudo apt install arrcus-gtest
+
+    Install GO Package
+
+    sudo apt install golang-1.15
+
+    which go // Check if installed correctly by verifying location of GO executable
+
+8)  Now, we should be ready to shoot for the workspace build after resolving above dependencies.
+    Assuming you are already in the arrcus_sw workspace root, just shoot the following command :-
+
+    cd ~/<LOCATION>/arrcus_sw
+    pdebuild --buildresult ..  OR make all
+    pdebuild --buildresult ../build --debbuildopts -nc
+
+    If you dont give .., then all the images will be in /var/cache/pbuilder/result
+
+#########################################################################################################
+password less ssh:
+-----------------
+
+1) If keychain is not there on the VM, download keychain first:
+
+sudo apt-get update
+sudo apt-get install keychain
+
+2) create a file in the "vi ~/.bash_profile"
+   Add below contents; I am adding two keys here, make sure that below files are there, if not create
+   create them properly, some example below via ssh-keygen.
+
+   ssh-keygen -t ed25519 -C "ashish@arrcus.com"   ; created id_ed25519 for user ashish@arrcus.com
+   ssh-keygen                                     ; created id_rsa
+
+~~
+### START-Keychain ###
+# Let  re-use ssh-agent and/or gpg-agent between logins
+/usr/bin/keychain $HOME/.ssh/id_rsa
+/usr/bin/keychain $HOME/.ssh/id_ed25519
+source $HOME/.keychain/$HOSTNAME-sh
+### End-Keychain ###
+~~
+
+3) Now create config file under ~/.ssh/config and copy below lines.
+
+~~
+Host *
+   IgnoreUnknown UseKechain
+   #UseKeyChain yes
+   AddKeysToAgent yes
+   IdentityFile ~/.ssh/id_ed25519                ; Though I have added two keys to the agent,
+                                                 ; only added one kye to the keychain
+~~
+#########################################################################################################
+
+Running a Test:
+---------------
+
+1) Test can be run on the VM, docker or on the actual hardware.
+2) If using docker, auto_docker.sh and topo_regression.json can be used to instantiate docker containers.
+3) In order to to play around and get the feel of the switch/router we dont have to create the image.
+4) One can download the daily image from the repo (preferably docker image to start with). And then instantiate
+   the docker container and create your own topology.
+
+   ssh to:
+   ssh <username>@infra1.sjc.arrcus.com
+   cd /local1/nfs2/newdaily/                                      // You can select from aminor or annapurna
+   cd /local1/nfs2/newdaily/aminor/2021_10_05_21/aminor/DOCKER
+
+   copy the docker file to your VM.
+   say in this case: arcos-1632763573.be6e9a9196b4f76cd863880087c64406c87a3e77.docker.xz
+
+5) You can create your own topo file as follows:
+ashish@localhost:~/workspace/docker_instance$ cat topo_cfg.json
+{
+    "ContainerImage" : "arcos:latest",
+    "SshPortBase": "10001",
+    "HttpsPortBase": "18009",
+    "SshStep": "1",
+    "HttpsStep": "1",
+    "SpyderWaitTimer": 100,
+    "ContainerName" : ["Router1", "Router2"],
+    "InterConnect": ["Router1_swp1:Router2_swp1", "Router1_swp2:Router2_swp2"]
+}
+ashish@localhost:~/workspace/docker_instance$
+
+6) Then clone the arrcus_dev_test
+git clone git@github.com:Arrcus/arrcus_dev_test.git
+
+7) Run the docker;
+arrcus_dev_test/scripts/dockerScripts/auto_docker.sh -i arcos-1632763573.be6e9a9196b4f76cd863880087c64406c87a3e77.docker.xz -f topo_cfg.json
+
+8) Once this is done, you can check your instances of the containers on the VM.
+   docker ps
+
+9) You can attach to the container
+
+   docker exec -it <cli>             // This will give you switch/router console cli, you can switch to bash and get linuc console
+
+10) To enable the debugs, one can use
+
+    debug <module>
+
+    Logs will be accessed via linux shell;
+
+    /var/log/arcos/<module>*.log
+
+11) All the module documents including CLI are inthe arrcus_sw branch itself
+
+    arrcus_sw/docs
+
+12) I could not able to see the ping packets coming on to the switch via "swp" interface,
+    checked via tcmpdump, but ping was working.
+
+#########################################################################################################
+
+Experiments on the acutal setup:
+--------------------------------
+
+1) Reserve resource from the below page:
+https://ci.sjc.arrcus.com/reserveResources?rack=&platform=&reserved=free&reason=&keyword=&liveness=
+
+ssh root@10.27.101.25 -p3032      // Checked with LK; this is edge-core-40xke-2 box.
+
+2) Checking the show version; 40 x 100 Gig box.
+
+~~
+root@PE1-32# show ver
+Platform:         AS7926-40XKE-O-AC-F
+Software Version: aminor
+Form Factor:      40x100GbE
+Serial Number:    EC1925000955
+MAC Address:      80:a2:35:e0:20:80
+CPU Information:  Intel(R) Pentium(R) CPU D1519 @ 1.50GHz, 8 core(s)
+Memory (Total):   32839960 KiB
+
+root@PE1-32#
+~~
+
+;show version of the build info
+cat /usr/share/arcos/build_info_cfg.json
+
+3) Interfaces:
+   -----------
+
+   This box definitely has the 40 ports named/numbered from swp0-swp39.
+   There is one management port also; named ma1.
+   All the MIB counters are shown as part of the command: "show interface swpX".
+
+   Assuming these are front pannel ports, these are also shown in the linux side, why ?
+
+   Linux commands: "ip add" and "ip link"
+
+   Only 1 management port/switch which is always layer3 interface.
+   swp<#> are the front panel ports.
+   loopback interface    // special interfaces implemented in s/w.
+   null interface        // Can not be configured, traffic points to it will be dropped.
+   svi interface         // vlan must be configured first, MTU can not be set, by default MTU=9000 for SVI.
+                         // It will take the lowest MTU, which is configured on the port, which is part of the
+                         // associated VLAN.
+   Bond Interface (LACP Port-Channel)    // 802.3ad - link aggregation of front pannel interfaces.
+                                         // interface bond<#>  ==> convention
+                                         // Both L2 and L3 is supported on bond interface
+                                         // Bydefault aggregation type is LACP, LACP timer is set to FAST.
+                                         // cmd: aggregation lag-type STATIC/LACP
+   switch ports (TRUNK/ACCESS)    // cmd: ethernet switched-vlan interface-mode ACCESS access-vlan 10
+                                  // cmd: aggregation switched-vlan interface-mode TRUNK
+                                  // cmd: aggregation switched-vlan trunk-vlans [ 10 20 ]
+   Port break out                 // Configure port 51 to break-out into 4 10G ports.
+                                  // This creates 4 Interfaces swp51s1, swp51s2, swp51s3 and swp51s4.
+                                  // cmd: (config)# break-out slot 0 ports 51 mode 10gx4
+
+
+   commands:
+   ---------
+
+   show interface swp1 mtu/counters
+   show interface swp1-10 mtu/counters
+   show run interface swp1-10
+
+   Jericho 2 Chip for breakout support:
+   ------------------------------------
+
+   When we have 40 front panel ports for this switch:
+
+   <-- 4 * 10 links towards front panel -->[GearBox 1..10]<-- 8 * 10 (2 per 100 Gig) links towards Jericho 2 -->
+
+   Since we need 4 lanes towards the Jericho 2, we will always take it from the adjacent port from the same port group.
+
+   ArcOS will support breakout only on the ODD ports i.e. swp1, swp3, swp5, .. swp39
+
+   Transition might cause traffic disruption inside the port group (HW limitation)
+
+   Observations:
+   -------------
+
+   1) On the linux shell, I could see all the interfaces which is created on the box;
+      This includes:
+
+        - all swp interface                  // All front pannel ports created as netdev interfaces
+        - all swp sub-interfaces             // All front pannel ports created as netdev interface
+        - all swp break-out interface        // All front pannel ports created as netdev interfaces
+        - all loopback interface             // All front pannel ports created as netdev interfaces
+        - lo interface
+        - ma1 interface                      // Used for shell access (out of band)
+        - management interface               // For what we use this ?
+        - acl_log_all                        // like a netdev interface for each front pannel port
+        - route_test                         // like a netdev interface for each front pannel port
+        - sflow                              // like a netdev interface for each front pannel port
+        - tofino-13-ug-1                     // For what we use this ?
+        - tofino-13-ug-2                     // For what we use this ?
+        - tofino-13-ulay                     // For what we use this ?
+        - vrf-1                              // Used for linux and arcos console
+
+3) Process Manager:
+   ----------------
+
+   Spyder is a process manager used in arrcus.
+
+   If we have some changes to be loaded on the ONL with ArrcOS, then:
+
+   service spyder stop
+   <copy all the .bin and .so in the respective directories>
+   service spyder start
+
+   The location of the files on the switch is @
+   /usr/lib/*.so                                    // All the libraries, i.e. dpal, indexer etc.
+   /usr/lib/arcos/*.bin                             // All bins, i.e. dpal, acl, fib etc.
+
+4) Logs:
+   -----
+
+   All the logs are at:
+
+   /val/log/                                         // /val/log/spyder.log
+   /val/log/arcos                                    // /val/log/arcos/dpal.bin_logfile.txt
+                                                     // /val/log/arcos/acl.bin_logfile.txt
+
+5) RADIS and MPS (Ephemeral Tables):
+   ---------------------------------
+
+   Radis and mps are used for storing all the objects state at various components. These
+   are used at the process restartibility.
+
+   DPAL is not a process restartable, the whole box will come down and we need to restart the sypder again.
+   This is like a fresh boc bootup.
+
+   They uses PUB/SUB model to pass the information, every update which comes to the table
+   will be informed to all the subcribers which are waiting on that, so that they can act on it.
+
+   commands:
+   ---------
+
+   show mbroker
+   show mbroker system-mps summary
+   show mbroker system-mps table <table_name>
+
+   e.g /dpal/slot/standalone/publisher
+       /feature/acl/subscriber
+
+5) LLDP is running on the switch:
+   ------------------------------
+
+   Since lldp is running on all the switches, we can find out which interface is connected
+   to the next switch.
+
+   commands:
+   ---------
+
+   show lldp interface swp1
+
+6) Anatomy of the switch:
+   ----------------------
+
+   This section captures how the arcos needs to install the image.
+
+   ONIE - Open Network Install Environement (comes installed on the switch)
+   ------------------------------------------------------------------------
+
+   What does it helps to do ?
+
+   - configure management interface
+   - locate installer through any available options
+   - run installer
+
+   Once we configure it, reboot it.
+
+   Once the box re-starts, it will come to GRUB kind of menu, we need to select the ONIE.
+   - It will then take the NOS first and load it.
+   - Then it will load ONL and ArcOS which we would have given in the script.
+
+   How to update the image, when one image is already loaded ?
+   -----------------------------------------------------------
+
+   We can not add ArcOS image alone, we have to always do it with ONL and ArcOS.
+
+   Customer is asking why can't we just load ArcOS and not ONL ? (This area needs investigation)
+
+   upgrade:
+   --------
+
+   In the bash on the swicth you can give the below command:
+   We can give the image location via URL or local repo.
+
+   command: update onl
+
+6) Control Plane Policer:
+   ----------------------
+
+   Networking system traffic coming to the system are categorised in three main parts:
+
+   - Management Plane traffic - system management
+   - Control Plane traffic - protocol management
+   - Data Plane traffic - switched/routed data traffic
+
+
+7) Questions ?
+
+   i) Why do we see all the front panel interfaces in the linux ?
+
+      - all swp interface
+      - sub interface
+      - loopback
+
+   Is this because we instantiate two plugins on actual switch, 1 for linux and 1 for actaul asic ?
+
+   ii) Can we see any traffic on these interface ?
+
+       - ifconfig and "show interface swp2 counters" does these show the same counters ?
+
+   iii) What is management interface other than m1 ?
+
+   iv) Where do we get info for the SDK for Jericho+ and in data sheet itself ?
+
+   v) Where do you see the dependancies code for PI and plugins ?
+
+   vi) How to get the info on the CP and Datapath models ?
+
+   vii) Where do I get the information of the product, like which chip it uses/form factor/#of RUs etc.
+
+8) Systems (DPAL View):
+   --------------------
+
+   DNX - is used for distributed systems.
+   (chips - Jericho+ (900 Gig))
+
+   - Each line card will run its own DPAL and u-FIB instance.
+   - Hence global ID and Global FIB comes into pictures which is in the RIB or you can say out of DPAL.
+   - FEC is kind of next hop.
+   - Worker Thread and a Companion thread for stats goes hand-in-hand
+   - Lazy Objects - gets created as part of the some other object create.
+   - forwrd and reverse mapping (PI <-> PD)
+   - AOM maintains depedancies
+     -- aom_obj_register // gives operation and list of callback
+     -- aom_obj_add      // instance call
+     -- aom_obj_del      // instance call
+     -- when all dependancies are resolved, AOM invokes callback passing the value
+     -- AOM will maintains the states for the object tree
+
+   - Since the PD layers also can have dependanices, AOM can be used
+     -- get rid of the manual aom code (pi/cp and plugins wanted to use AOM)
+     -- define a way for defining depandancies of objects in PI and plugins
+        -- data store schema (*_ifs.json)
+     -- jinja2 and python is used in code generation layer. (code generation layer)
+        -- gen_cplane_obj.h gen_cplane_obj.c are generated code for cplane obj.
+        -- gen_bcm_obj.h gen_bcm_obj.c are generated code for bcm obj.
+   - CP (AOM) ==> Plugin Layer (AOM) [call this as a Data collection CP, BCM etc.]
+   - Translate layer is hand written which will create if any intermidiate object are needed in the Datapath
+     -- every asic will have their own object collections (jericho+)
+        -- arrcus_sw/cplane_obj.json        // Only object name and schema associates with it
+        -- arrcus_sw/bcm_obj.json           // Data path objects schema
+   - Layering: DPAL Application ==> DPAL Translate ==> AOM Objects
+   - DPAL cfg file is read tp instantiate the asic plugins
+   - only one primary plugin, and one or more secondary plugin
+     -- on the actual ASIC, we will have primary plugin as a Jerocho Plugin
+        and it can have one or more secondary plugins, we will have linux plugin
+        instantiated on the jericho platforms also.
+   - As on today we have only 1 RU systems; Which has two devices
+     -- we spawn only one #WorkerThread which is responsible for programminh 2 devices.
+     -- Memory Requirement
+        -- 300 MB (for CP and Data Objects for 1 million routes)
+        -- 100 MB (for ACL/QoS, next hop and etc)
+        -- for scale of 4 RU (8 device system), we need to spawn 4 #WorkerThread
+           -- 400 MB * 4 = 1.6 GB memory is needed
+   - libdnx_stub.so library is there so that we can run it on the VM and just check the
+     FIB and DPAL in the FIB/DPAL CUT environment.
+   - dpal/dstore/tables/bcm.vlan.tbl.json
+
+   Centralized platform:
+   ---------------------
+
+   - single CPU complex
+
+   Distributed platform:
+   ---------------------
+
+   - multiple CPU complex
+   - CPU inter-connected over ethernet switch
+#########################################################################################################
+Followup with LK 11/10/2021:
+----------------------------
+
+1) ma1 is out of band interface which is used for ssh from the VM and all.
+   It does not go via ASIC pipeline.
+2) All the front pannel port/subinterface/loopback/lag etc are represented via netdev interfaces
+   in linux and all the control packets which is coming on to these interfaces will be shown
+   under these interfaces only.
+3) CPU interface is not shown in the ifconfig, COPP will be applied before putting the packet
+   towards the CPU port, and then given to the individual netdev interface, this must be done
+   by the PCIE driver. (Check and confirm this).
+4) COPP is a hardware construct and there are commands to see the information at aggregate level (Check).
+5) All the CPU inject packets are L2 Inject, and no processing happens in the hardware pipeline, and the
+   packets are directly put on the egress port. Hence no feature processing happens in the h/w pipeline
+   for CPU generated packets.
+6) The PCiE speed which we have is 1Gig/10Gig, till date we have not seen any bandwidth issue on this.
+7) We have cards where we have more than two Jericho (chisps), but both of them are getting configured
+   from the same worker thread.
+8) We are enabling only one worker thread per Card (irrespective of number of chips on the card)
+9) If there are two jerocho's on the card, we enable both the PCiE interface on each of them, and
+   the control packets are punted to the CPU from the specific PCiE interface.
+
+Work needs to try:
+------------------
+
+1) Enable Debugs on DPAL, create the interface/subinterface and see what are the messages are coming to the DPAL.
+2) Check ping also.
+3) Go through system document.
+#########################################################################################################
+Tracing DPAL On the box:
+------------------------
+
+Below is the important tree details for the dpal directory:
+
+dpal/
+  - cplane_obj.json          // CPLANE object file for DPAL
+  - dpal_cfg.json            // Configuration file for DPAL
+  - dpal_plugins.json        // Plugins names==>library mapping
+  - ppmgr_intf_pfx.json      // Superscripts used for creating Bridge/Vxlan/FPPort/Veth ports
+  - slot_cfg.json            // IP Addresses for CS/LC EP_IP
+
+dpal_main.c [start file]
+  - there is a main function @ line 675
+  - function call
+    main
+      dpal_mpsc_init
+      dpal_mpsc_subscriber_init
+      dpal_mpsc_publisher_init
+      dpal_confd_plugin_cfg_init       // This will start the worker threads
+        dpal_confd_reconnect_cfg_cb
+          dpal_confd_cfg_subscriber
+            dpal_cdb_read_hardware_cfg
+              dpal_process_confd_config
+                dpal_cont_init
+                  dpal_plugin_mgr_init
+                  dpal_spawn_workers
+                  dpal_spawn_mac_learning
+                  dpal_start_subscribe
+      dpal_init_worker_to_main_workq
+      dpal_cfg_parser(&dpal_main_ctxt.cfg)
+      dpal_confd_main_oper_init(&dpal_main_ctxt)
+
+Below trace is for the interface swp13 enable:
+----------------------------------------------
+
+When we do "enable true" from "enable false"
+
+interface swp13 => ifindex 1014
+
+~~
+[2000/09/08 00:32:48.381563][DEBUG][DNX-Global] dnx_global_rif_main_cb(): obj =
+global-rif
+ Object:global_rif
+   ifindex: 1014
+   hwid: 15
+, optype = 2
+[2000/09/08 00:32:48.381603][DEBUG][aom] aom_fsm_run(): key = {global-rif: 0xf6
+0x3 0x0 0x0 0x0 0x0 0x0 0x0}, has-deps + add => has-deps, deps-state = has-deps
+srcs-state= no-srcs, curr-deps = {}, new-deps = {}, curr-srcs = {}, new-srcs = {
+}
+~~
+
+1) Main call back came in dnx_global_rif_main_cb() => dnx_global_rif.c
+   - this just updated ds_global_rif_hwid_set(rif, rid);
+
+2) Call back will come to dnx_global_cfg_obj:
+   -- which will call dnx_global_l3if_xlate() as this is DPAL_L3_INTF.
+
+How does the layering looks ?
+-----------------------------
+
+[DPAL: DNX-Global]
+[DPAL: DNX-XLATE]
+[DPAL: DNX-L3IF]
+[DPAL: BCM DNX PLUGIN]
+[ASIC]
+
+How is the port model is in the hardware ?
+------------------------------------------
+
+[L2 or L3 port]
+[Ethernet-Port]
+[System-Port(s)(SSPA)/SPA(SSPA1, SSPA2 ...)] - local port/mod port
+[MAC Port]/[NIF Port]
+#########################################################################################################
+
+Jericho2/jerocho2 info:
+-----------------------
+
+1) It has two cores:
+   - each core include TM and PP
+   - speed is 8 Tbps
+   - Handles 512B per clock/core @ 1GHz (which gives 2 * 512B = 1024 B = 1024*8 bits * 1GHz = 8 Tbps)
+2) Resources:
+   - 12 Large TCAMs (2k * 160 Bit) per core
+   - 4 Small TCAMs (256 * 160 Bit) per core
+3) Forwarding:
+   - Ingress PP can generate 4 forwarding TM actions:
+     -- fwd (can be overwritten if the next fwd action has more priority 0-15)
+     -- snif0(cpu copy/snoop) (can be overwritten if next snooping action more priority 0-7)
+     -- snif1(mirror) (no priority)
+     -- snif2(statistical sampling) (no priority)
+#########################################################################################################
+BCM SDK/bcm sdk download
+git clone git@github.com:Arrcus/bcm_sdk.git
+#########################################################################################################
+ifconfig ma1 add 10.9.8.34/24
+There are annoying messages keeps poping on up on the box.
+You can stop them by stoping addthe ZTP.
+
+root@localhost# request system ztp stop
+Are you sure? This command will disable ZTP and may take several minutes (up to 10 minutes) [no,yes] 2000-01-01 05:50:13 ArcOS ztp INFO: Sending DHCP requests on interfaces [ma1]
+yes
+
+Initiating ZTP stop. Please do not perform any operation on the system until ZTP is stopped...
+2000-01-01 05:50:16 ArcOS ztp INFO: Stopping ZTP...
+root@localhost#
+
+To enable the ssh-server on the switch so that one can to ssh to the switch.
+----------------------------------------------------------------------------
+
+system ssh enable true
+system ssh-server permit-root-login true
+system aaa authentication admin-user admin-password arrcus
+system rest enable true
+commit
+
+important: ping is not working to vm
+
+reachability to the daily nightly images is via management vrf, so we have to switch to mngt vrf;
+-------------------------------------------------------------------------------------------------
+
+root@localhost:~# ping 10.9.195.31
+connect: Network is unreachable
+root@localhost:~# pwd
+/root
+root@localhost:~#
+root@localhost:~#
+root@localhost:~#
+root@localhost:~# ip vrf exec management
+No command specified
+root@localhost:~# ip vrf exec management bash
+root@localhost:~# ping 10.9.195.31
+#########################################################################################################
+Original VM Address on eth0: 10.9.195.39/16
+git clone git@github.com:Arrcus/arrcus_sw.git -b aminor
+
+—————————————————————————————————————
+27-Sept-2021 - 31-Sept-2021
+
+VPN: dH@w@ne#Ash#1
+
+VM IP Assignment
+Ashish Dhawane: 10.9.209.100-150
+~~
+Welcome to Ubuntu 18.04.4 LTS (GNU/Linux 4.15.0-135-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+  System information as of Wed Jan 12 06:14:05 UTC 2022
+
+  System load:  0.0                 Processes:              213
+  Usage of /:   22.7% of 294.29GB   Users logged in:        1
+  Memory usage: 1%                  IP address for ens3:    10.9.215.103
+  Swap usage:   0%                  IP address for docker0: 172.17.0.1
+~~
+
+#########################################################################################################
+If you get the image form the edge-core guy to check the installer image if the driver is working fine or not.
+Copy the image in the temp and give the below command:
+root@AS4630-54TE:/tmp#onl-upgrade-from-installer ONL-master_ONL-OS8_2021-11-16.0955-e6cf2c0_AMD64_INSTALLED_INSTALLER
+#########################################################################################################
+i2c commands:
+-------------
+i2cdump -f -y 10 0x50       // Will give PSU name
+i2cdump -f -y 11 0x51       // Will give PSU name
+
+root@localhost:/# find . -name psu_model_name
+./sys/devices/pci0000:00/0000:00:12.0/i2c-1/i2c-2/i2c-10/10-0050/psu_model_name
+./sys/devices/pci0000:00/0000:00:12.0/i2c-1/i2c-2/i2c-11/11-0051/psu_model_name
+root@localhost:/# cd /sys
+#########################################################################################################
+/*
+ * BCM API error codes.
+ *
+ * Note: An error code may be converted to a string by passing the code
+ * to bcm_errmsg().
+ */
+typedef enum bcm_error_e {
+    BCM_E_NONE         = _SHR_E_NONE,
+    BCM_E_INTERNAL     = _SHR_E_INTERNAL,
+    BCM_E_MEMORY       = _SHR_E_MEMORY,
+    BCM_E_UNIT         = _SHR_E_UNIT,
+    BCM_E_PARAM        = _SHR_E_PARAM,
+    BCM_E_EMPTY        = _SHR_E_EMPTY,
+    BCM_E_FULL         = _SHR_E_FULL,
+    BCM_E_NOT_FOUND    = _SHR_E_NOT_FOUND,
+    BCM_E_EXISTS       = _SHR_E_EXISTS,
+    BCM_E_TIMEOUT      = _SHR_E_TIMEOUT,
+    BCM_E_BUSY         = _SHR_E_BUSY,
+    BCM_E_FAIL         = _SHR_E_FAIL,
+    BCM_E_DISABLED     = _SHR_E_DISABLED,
+    BCM_E_BADID        = _SHR_E_BADID,
+    BCM_E_RESOURCE     = _SHR_E_RESOURCE,
+    BCM_E_CONFIG       = _SHR_E_CONFIG,
+    BCM_E_UNAVAIL      = _SHR_E_UNAVAIL,
+    BCM_E_INIT         = _SHR_E_INIT,
+    BCM_E_PORT         = _SHR_E_PORT,
+    BCM_E_IO           = _SHR_E_IO,
+    BCM_E_ACCESS       = _SHR_E_ACCESS,
+    BCM_E_NO_HANDLER   = _SHR_E_NO_HANDLER,
+    BCM_E_PARTIAL      = _SHR_E_PARTIAL
+} bcm_error_t;
+#########################################################################################################
+Vijay Vim/Bash Settings:
+------------------------
+503 => vi .
+./                .build.log.swp    .gitconfig        .ssh/             .vimrc
+../               .cache/           .git-credentials  .swt/             .vscode-server/
+.bash-git-prompt/ .config/          .gitmodules       .tmux/            .wget-hsts
+.bash_history     .coverity/        .install4j        .tmux.conf
+.bash_logout      .cov-wizard/      .java/            .vim/
+.bashrc           .fzf/             .local/           .vim-bookmarks
+.bashrc_BU        .fzf.bash         .profile          .viminfo
+✔ 18:23:localhost [~]
+503 => vi .
+#########################################################################################################
+54te 54pe onie updater procedure:
+---------------------------------
+
+https://support.edge-core.com/hc/en-us/requests/18697
+
+Hi Ashish,
+
+According to my test, the ONIE that installed in your unit had some issue. It will cause NOS installer determine the wrong model. In your case, the model which you have is AS4630-54TE. However, it installed AS4630-54PE. Therefore,  PSU cannot read in case. Please following below step to recover.
+
+Download ONIE here: [Arrcus][#18697]ONIE v2020.08.00.10
+
+1. Uninstall the NOS first.
+2. Update the ONIE in ONIE rescue mode.
+  B. Update the ONIE.
+
+ONIE:/ #ifconfig eth2 x.x.x.x
+ONIE:/ # onie-self-update http://188.188.99.1/jeff/as4630-54_onie_v2020.08.00.10.updater
+
+3. After updating complete, reinstall back the ONL.
+
+ONIE:/ #ifconfig eth2 x.x.x.x
+ONIE:/ # onie-nos-install http://188.188.99.1/jeff/ONL-master_ONL-OS8_2021-11-16.0955-e6cf2c0_AMD64_INSTALLED_INSTALLER
+#########################################################################################################
+#/bin/sh!
+scp builder@10.9.209.100:~/nobackup/create_patch_aminor/arrcus_sw/dpal/build/lib/              libdpal_plugin_xgs.so /usr/lib/.
+scp builder@10.9.209.100:~/nobackup/create_patch_aminor/arrcus_sw/feature/ptp/build/bin/ptp.   bin /usr/lib/arcos/.
+scp builder@10.9.209.100:~/nobackup/create_patch_aminor/arrcus_sw/build/ui/cp_feature/*ptp*.   fxs /usr/share/arcos/ui/.
+#########################################################################################################
+
